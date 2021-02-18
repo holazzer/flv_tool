@@ -16,3 +16,5 @@
 # vendor/
 
 # Custom ignores:
+
+/.idea

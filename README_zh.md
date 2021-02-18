@@ -2,7 +2,8 @@
 
 `flv tool` 是一个详细检验、处理 flv 的包。
 
-`flv_tool` 使用 `go` 编写，并提供 `python3` 语言绑定。
+~~`flv_tool` 使用 `go` 编写，并提供 `python3` 语言绑定。~~
+可能还是只用python实现更好。
 
 
 ### 功能特色

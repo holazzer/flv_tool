@@ -4,8 +4,9 @@
 
 `flv tool` is a package aimed at **verbosely** examining and performing operations on flv files.
 
-`flv_tool` is written with `go` and provides `python3` bindings.
+~~`flv_tool` is written with `go` and provides `python3` bindings~~.
 
+After some research I decided that using pure python might be better.
 
 ### Fearures
 
