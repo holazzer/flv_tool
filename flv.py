@@ -42,6 +42,22 @@ class BaseReader:
         ui32 = self.f.read(4)
         return unpack(">I", ui32)[0]
 
+    def read_double(self) -> float:
+        ui64 = self.f.read(8)
+        return unpack(">d", ui64)[0]
+
+    def read_UI16(self) -> int:
+        ui16 = self.f.read(2)
+        return unpack(">H", ui16)[0]
+
+    def read_SI16(self) -> int:
+        ui16 = self.f.read(2)
+        return unpack(">h", ui16)[0]
+
+    def read_string_no_term(self, length) -> str:
+        s = self.f.read(length)
+        return s.decode(encoding='utf-8')
+
 
 class BaseFlvTag:
     def __init__(self):
@@ -182,11 +198,7 @@ class BaseData(BaseFlvTag):
     pass
 
 
-class VideoData(BaseData):
-    pass
-
-
-class AudioData(BaseData):
+class BinaryData(BaseData):
     pass
 
 
@@ -211,8 +223,8 @@ class ScriptDataValue(BaseData):
         super().__init__()
         self.type: ValueType = None
         self.script_data_value: Union[float, int, \
-                ScriptDataString, ScriptDataObject, ScriptDataECMAArray, \
-                ScriptDataStrictArray, ScriptDataDate, ScriptDataLongString] = None
+                                      ScriptDataString, ScriptDataObject, ScriptDataECMAArray, \
+                                      ScriptDataStrictArray, ScriptDataDate, ScriptDataLongString] = None
 
 
 class ScriptDataDate(BaseData):
@@ -221,12 +233,15 @@ class ScriptDataDate(BaseData):
         self.date_time: float = None  # unix timestamp value
         self.local_date_time_offset: int = None
 
+        # calculated field
+        self.real_datetime: datetime = None
+
 
 class ScriptDataECMAArray(BaseData):
     def __init__(self):
         super().__init__()
-        self.array_length: int = None
-        self.variables: List[ScriptDataObjectProperty] = None
+        self.array_length: int = None  # *approximate* length
+        self.variables: List[ScriptDataObjectProperty] = []
         # list terminator omitted
 
 
@@ -240,7 +255,7 @@ class ScriptDataLongString(BaseData):
 class ScriptDataObject(BaseData):
     def __init__(self):
         super().__init__()
-        self.object_properties: List[ScriptDataObjectProperty] = None
+        self.object_properties: List[ScriptDataObjectProperty] = []
         # list terminator omitted
 
 
@@ -308,6 +323,7 @@ class FlvReader(BaseReader):
 
     def read_flv_tag(self):
         tag = FlvTag()
+        self.flv.body.append(tag)
         tag.first_byte_after = self.f.tell()
 
         one = self.read_UI8()
@@ -322,22 +338,24 @@ class FlvReader(BaseReader):
 
         stream_id = self.read_UI24()
         assert stream_id == 0, "StreamID not 0"
+
+        data_size_start = self.f.tell()
+
         if tag.tag_type == 8:
             tag.audio_tag_header = self.read_audio_tag_header()
         if tag.tag_type == 9:
             tag.video_tag_header = self.read_video_tag_header()
         if tag.filter == 1:
             raise NotImplementedError("Encryption Not Implemented yet")
-        if tag.tag_type == 8:
-            tag.data = self.read_audio_data()
-        elif tag.tag_type == 9:
-            tag.data = self.read_video_data()
+        if tag.tag_type == 8 or tag.tag_type == 9:
+            tag.data = BinaryData()
+            tag.data.first_byte_after = self.f.tell()
+            tag.data.last_byte_at = data_size_start + tag.data_size
+            self.f.seek(tag.last_byte_at)
         elif tag.tag_type == 18:
             tag.data = self.read_script_data()
         else:
             raise TypeError("Tag Type {} Not Implemented".format(tag.tag_type))
-
-        self.flv.body.append(tag)
 
     def read_flv_prev_tag_size(self):
         pts = PrevTagSize()
@@ -380,26 +398,130 @@ class FlvReader(BaseReader):
         header.last_byte_at = self.f.tell()
         return header
 
-    def read_video_data(self) -> VideoData:
-        video = VideoData()
-        ...
-        return video
-
-    def read_audio_data(self) -> AudioData:
-        audio = AudioData()
-        ...
-        return audio
-
     def read_script_data(self) -> ScriptData:
         script = ScriptData()
-        ...
+        script.first_byte_after = self.f.tell()
+        script.name = self.read_script_data_value()
+        script.value = self.read_script_data_value()
+        script.last_byte_at = self.f.tell()
         return script
 
+    def read_script_data_value(self) -> ScriptDataValue:
+        value = ScriptDataValue()
+        value.first_byte_after = self.f.tell()
+        value.type = ValueType(self.read_UI8())
 
+        # Using Magic Numbers because specification uses them
+        if value.type == 0:
+            value.script_data_value = self.read_double()
+        elif value.type == 1:
+            value.script_data_value = self.read_UI8()
+        elif value.type == 2:
+            value.script_data_value = self.read_script_data_string()
+        elif value.type == 3:
+            value.script_data_value = self.read_script_data_object()
+        elif value.type == 7:
+            value.script_data_value = self.read_UI16()
+        elif value.type == 8:
+            value.script_data_value = self.read_script_data_ecma_array()
+        elif value.type == 10:
+            value.script_data_value = self.read_script_data_strict_array()
+        elif value.type == 11:
+            value.script_data_value = self.read_script_data_date()
+        elif value.type == 12:
+            value.script_data_value = self.read_script_data_long_string()
 
+        value.last_byte_at = self.f.tell()
+        return value
 
+    def read_script_data_date(self) -> ScriptDataDate:
+        sdd = ScriptDataDate()
+        sdd.first_byte_after = self.f.tell()
+        sdd.date_time = self.read_double()
+        sdd.local_date_time_offset = self.read_UI16()
+        sdd.last_byte_at = self.f.tell()
+        return sdd
 
+    def read_script_data_ecma_array(self) -> ScriptDataECMAArray:
+        array = ScriptDataECMAArray()
+        array.first_byte_after = self.f.tell()
+        array.array_length = self.read_UI32()
 
+        # The specification says `ECMAArrayLength` is
+        # `*Approximate* number of items in ECMA array`,
+        # hence the `peek` method.
+        while self.peek_script_data_object_end():
+            op = self.read_script_data_object_property()
+            array.variables.append(op)
 
+        self.read_script_data_object_end()
+        array.last_byte_at = self.f.tell()
+        return array
 
+    def read_script_data_object_end(self):
+        b = unpack("3B", self.f.read(3))
+        assert b == (0, 0, 9), "Incorrect Object End Marker"
+
+    def peek_script_data_object_end(self) -> bool:
+        # `peek` may return more or less than 3 bytes
+        # https://bugs.python.org/issue5811
+        # e.g. buffer_size = 8192, and you're at 8190,
+        #      when you peek(3), you only get 2
+        # Therefore, I'll go with more expensive approach
+        # should `peek` fail.
+        b = self.f.peek(3)
+        if len(b) == 3:
+            return unpack('3B', b) == (0, 0, 9)
+        else:
+            b = self.f.read(3)
+            self.f.seek(-3, 1)  # whence = 1 SEEK_CUR
+            return unpack('3B', b) == (0, 0, 9)
+
+    def read_script_data_long_string(self) -> ScriptDataLongString:
+        ls = ScriptDataLongString()
+        ls.first_byte_after = self.f.tell()
+        ls.string_length = self.read_UI32()
+        ls.string_data = self.read_string_no_term(ls.string_length)
+        ls.last_byte_at = self.f.tell()
+        return ls
+
+    def read_script_data_object(self) -> ScriptDataObject:
+        o = ScriptDataObject()
+        o.first_byte_after = self.f.tell()
+
+        while self.peek_script_data_object_end():
+            op = self.read_script_data_object_property()
+            o.object_properties.append(op)
+        self.read_script_data_object_end()
+
+        o.last_byte_at = self.f.tell()
+        return o
+
+    def read_script_data_object_property(self) -> ScriptDataObjectProperty:
+        op = ScriptDataObjectProperty()
+        op.first_byte_after = self.f.tell()
+        op.property_name = self.read_script_data_string()
+        op.property_data = self.read_script_data_value()
+        op.last_byte_at = self.f.tell()
+        return op
+
+    def read_script_data_strict_array(self) -> ScriptDataStrictArray:
+        sa = ScriptDataStrictArray()
+        sa.first_byte_after = self.f.tell()
+
+        sa.strict_array_length = self.read_UI32()
+        for _ in range(sa.strict_array_length):
+            v = self.read_script_data_value()
+            sa.strict_array_value.append(v)
+
+        sa.last_byte_at = self.f.tell()
+        return sa
+
+    def read_script_data_string(self) -> ScriptDataString:
+        s = ScriptDataString()
+        s.first_byte_after = self.f.tell()
+        s.string_length = self.read_UI16()
+        s.string_data = self.read_string_no_term(s.string_length)
+        s.last_byte_at = self.f.tell()
+        return s
 
