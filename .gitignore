@@ -18,3 +18,5 @@
 # Custom ignores:
 
 /.idea
+
+/__pycache__

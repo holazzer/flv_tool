@@ -6,11 +6,11 @@ Flv Tool, early impl
  ( Will Adobe please release the source code for flash, since you paid
      big price on it and threw it like trash (what's wrong with u)? )
 """
-from struct import unpack
-from datetime import datetime
+from struct import unpack, pack
+from datetime import datetime, tzinfo
 from enum import IntEnum
 
-from typing import BinaryIO, Tuple, Optional, Union, List
+from typing import BinaryIO, Tuple, Optional, Union, List, Iterable
 
 
 class BaseReader:
@@ -29,7 +29,7 @@ class BaseReader:
         b2, b3, b4 = self.f.read(3)
         b1 = b2 & 0b10000000
         b2 = b2 & 0b01111111
-        return unpack('>i', b1 + b2 + b3 + b4)[0]
+        return unpack('>i', pack('4B', b1, b2, b3, b4))[0]
 
     def read_byte(self) -> bytes:
         return self.f.read(1)
@@ -70,6 +70,26 @@ class BaseFlvTag:
             return self.last_byte_at - self.first_byte_after
         return -1
 
+    def repr_verbose(self) -> str:
+        s = "<{} [{}=>{}]>\n".format(self.__class__.__name__,
+                                       self.first_byte_after,
+                                       self.last_byte_at)
+        for k, v in self.__dict__.items():
+            ss = ''
+            if (k in ['first_byte_after',
+                      'last_byte_at',
+                      'prev_tag',
+                      'size']) \
+                or (v in [None,
+                          NotImplemented]):
+                continue
+            else:
+                if isinstance(v, BaseFlvTag):
+                    v = v.repr_verbose()
+                ss = "{}: {}\n".format(k, v)
+            s += ss
+        return s
+
 
 class FlvHeader(BaseFlvTag):
     def __init__(self):
@@ -88,9 +108,9 @@ class PrevTagSize(BaseFlvTag):
 
 
 class TagType(IntEnum):
-    audio = 8
-    video = 9
-    script_data = 18
+    Audio = 8
+    Video = 9
+    Script = 18
 
 
 class FlvTag(BaseFlvTag):
@@ -222,8 +242,8 @@ class ScriptDataValue(BaseData):
     def __init__(self):
         super().__init__()
         self.type: ValueType = None
-        self.script_data_value: Union[float, int, \
-                                      ScriptDataString, ScriptDataObject, ScriptDataECMAArray, \
+        self.script_data_value: Union[float, int,
+                                      ScriptDataString, ScriptDataObject, ScriptDataECMAArray,
                                       ScriptDataStrictArray, ScriptDataDate, ScriptDataLongString] = None
 
 
@@ -235,6 +255,9 @@ class ScriptDataDate(BaseData):
 
         # calculated field
         self.real_datetime: datetime = None
+
+    def print_pretty(self) -> str:
+        return str(datetime.fromtimestamp(self.date_time))
 
 
 class ScriptDataECMAArray(BaseData):
@@ -298,6 +321,8 @@ class FlvReader(BaseReader):
     def __init__(self, f):
         super(FlvReader, self).__init__(f)
         self.flv: FLV = None
+        self.file_length = self.f.seek(0, 2)
+        self.f.seek(0)
 
     def read_flv(self) -> FLV:
         self.flv = FLV()
@@ -308,7 +333,7 @@ class FlvReader(BaseReader):
 
     def read_flv_header(self):
         header = self.flv.header
-        header.first_byte_at = self.f.tell()
+        header.first_byte_after = self.f.tell()
         sig = self.f.read(3)
         assert sig == b'FLV', "Not a valid FLV file."
         header.version = self.read_UI8()
@@ -319,7 +344,15 @@ class FlvReader(BaseReader):
         header.last_byte_at = self.f.tell()
 
     def read_flv_body(self):
-        pass
+        while 1:
+            if self.f.tell() < self.file_length:
+                self.read_flv_prev_tag_size()
+            else:
+                break
+            if self.f.tell() < self.file_length:
+                self.read_flv_tag()
+            else:
+                break
 
     def read_flv_tag(self):
         tag = FlvTag()
@@ -351,14 +384,15 @@ class FlvReader(BaseReader):
             tag.data = BinaryData()
             tag.data.first_byte_after = self.f.tell()
             tag.data.last_byte_at = data_size_start + tag.data_size
-            self.f.seek(tag.last_byte_at)
+            self.f.seek(tag.data.last_byte_at)
         elif tag.tag_type == 18:
             tag.data = self.read_script_data()
-        else:
-            raise TypeError("Tag Type {} Not Implemented".format(tag.tag_type))
+
+        tag.last_byte_at = self.f.tell()
 
     def read_flv_prev_tag_size(self):
         pts = PrevTagSize()
+        pts.first_byte_after = self.f.tell()
         pts.size = self.read_UI32()
         if self.flv.body:
             prev_tag = self.flv.body[-1]
@@ -366,7 +400,7 @@ class FlvReader(BaseReader):
             assert prev_tag.tag_size == pts.size, "Mismatch Prev Tag Size"
         else:
             assert pts.size == 0, "First Pre Tag Size not 0"
-
+        pts.last_byte_at = self.f.tell()
         self.flv.body.append(pts)
 
     def read_audio_tag_header(self) -> AudioTagHeader:
@@ -450,7 +484,7 @@ class FlvReader(BaseReader):
         # The specification says `ECMAArrayLength` is
         # `*Approximate* number of items in ECMA array`,
         # hence the `peek` method.
-        while self.peek_script_data_object_end():
+        while not self.peek_script_data_object_end():
             op = self.read_script_data_object_property()
             array.variables.append(op)
 
@@ -489,7 +523,7 @@ class FlvReader(BaseReader):
         o = ScriptDataObject()
         o.first_byte_after = self.f.tell()
 
-        while self.peek_script_data_object_end():
+        while not self.peek_script_data_object_end():
             op = self.read_script_data_object_property()
             o.object_properties.append(op)
         self.read_script_data_object_end()
@@ -524,4 +558,3 @@ class FlvReader(BaseReader):
         s.string_data = self.read_string_no_term(s.string_length)
         s.last_byte_at = self.f.tell()
         return s
-
