@@ -90,6 +90,17 @@ class BaseFlvTag:
             s += ss
         return s
 
+    @property
+    def py_native_value(self):
+        d = {}
+        for k,v in self.__dict__.items():
+            if v is None: continue
+            if hasattr(v, 'py_native_value'):
+                d[k] = v.py_native_value
+            else:
+                d[k] = v
+        return d
+
 
 class FlvHeader(BaseFlvTag):
     def __init__(self):
@@ -246,6 +257,13 @@ class ScriptDataValue(BaseData):
                                       ScriptDataString, ScriptDataObject, ScriptDataECMAArray,
                                       ScriptDataStrictArray, ScriptDataDate, ScriptDataLongString] = None
 
+    @property
+    def py_native_value(self):  # return python native representation
+        if self.type in (0, 1, 7):
+            return self.script_data_value
+        else:
+            return self.script_data_value.py_native_value
+
 
 class ScriptDataDate(BaseData):
     def __init__(self):
@@ -253,11 +271,9 @@ class ScriptDataDate(BaseData):
         self.date_time: float = None  # unix timestamp value
         self.local_date_time_offset: int = None
 
-        # calculated field
-        self.real_datetime: datetime = None
-
-    def print_pretty(self) -> str:
-        return str(datetime.fromtimestamp(self.date_time))
+    @property
+    def real_datetime(self):
+        return datetime.fromtimestamp(self.date_time)
 
 
 class ScriptDataECMAArray(BaseData):
@@ -267,12 +283,22 @@ class ScriptDataECMAArray(BaseData):
         self.variables: List[ScriptDataObjectProperty] = []
         # list terminator omitted
 
+    @property
+    def py_native_value(self):
+        d = {}
+        d.update(i.py_native_value for i in self.variables)
+        return d
+
 
 class ScriptDataLongString(BaseData):
     def __init__(self):
         super().__init__()
         self.string_length: int = None  # string_date length in bytes
         self.string_data: str = None
+
+    @property
+    def py_native_value(self):
+        return self.string_data
 
 
 class ScriptDataObject(BaseData):
@@ -281,12 +307,23 @@ class ScriptDataObject(BaseData):
         self.object_properties: List[ScriptDataObjectProperty] = []
         # list terminator omitted
 
+    @property
+    def py_native_value(self):
+        d = {}
+        d.update(i.py_native_value for i in self.object_properties)
+        return d
+
 
 class ScriptDataObjectProperty(BaseData):
     def __init__(self):
         super().__init__()
         self.property_name: ScriptDataString = None
         self.property_data: ScriptDataValue = None
+
+    @property
+    def py_native_value(self):
+        return (self.property_name.py_native_value,
+                self.property_data.py_native_value)
 
 
 class ScriptDataStrictArray(BaseData):
@@ -295,6 +332,10 @@ class ScriptDataStrictArray(BaseData):
         self.strict_array_length: int = None  # Number of items
         self.strict_array_value: List[ScriptDataValue] = []
 
+    @property
+    def py_native_value(self):
+        return [i.py_native_value for i in self.strict_array_value]
+
 
 class ScriptDataString(BaseData):
     def __init__(self):
@@ -302,12 +343,20 @@ class ScriptDataString(BaseData):
         self.string_length: int = None
         self.string_data: str = None
 
+    @property
+    def py_native_value(self):
+        return self.string_data
+
 
 class ScriptData(BaseData):
     def __init__(self):
         super().__init__()
         self.name: ScriptDataValue = None
         self.value: ScriptDataValue = None
+
+    @property
+    def py_native_value(self):
+        return {self.name.py_native_value: self.value.py_native_value }
 
 
 class FLV:
