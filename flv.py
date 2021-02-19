@@ -1,5 +1,10 @@
 """
-Flv Tool
+Flv Tool, early impl
+
+* Do not handle encryption! (yet)
+ (Do people still use that? After all, Adobe successfully killed Flash.)
+ ( Will Adobe please release the source code for flash, since you paid
+     big price on it and threw it like trash (what's wrong with u)? )
 """
 from struct import unpack
 from datetime import datetime
@@ -77,7 +82,7 @@ class FlvTag(BaseFlvTag):
         super().__init__()
 
         # Protocol Fields
-        self.filter: bool = None
+        self.filter: int = None
         self.tag_type: TagType = None
         self.data_size: int = None
         self.timestamp: bytes = None
@@ -100,13 +105,13 @@ class SoundFormat(IntEnum):
     Nellymoser16kHzMono = 4
     Nellymoser8kHzMono = 5
     Nellymoser = 6
-    G711ALawLogarithmicPCM = 7   # reserved
+    G711ALawLogarithmicPCM = 7  # reserved
     G711MuLawLogarithmicPCM = 8  # reserved
     reserved = 9
     AAC = 10
     Speex = 11
-    MP3_8kHz = 14                # reserved
-    DeviceSpecificSound = 15     # reserved
+    MP3_8kHz = 14  # reserved
+    DeviceSpecificSound = 15  # reserved
 
 
 class SoundRate(IntEnum):
@@ -185,8 +190,86 @@ class AudioData(BaseData):
     pass
 
 
+class ValueType(IntEnum):
+    Number = 0
+    Boolean = 1
+    String = 2
+    Object = 3
+    MovieClip = 4  # not supported, but still warms an old flash developer's heart ;)
+    Null = 5
+    Undefined = 6  # Did you know that AS3 was the only impl of ES4 ?
+    Reference = 7
+    ECMA_array = 8
+    Object_end_marker = 9
+    StrictArray = 10
+    Date = 11
+    LongString = 12
+
+
+class ScriptDataValue(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.type: ValueType = None
+        self.script_data_value: Union[float, int, \
+                ScriptDataString, ScriptDataObject, ScriptDataECMAArray, \
+                ScriptDataStrictArray, ScriptDataDate, ScriptDataLongString] = None
+
+
+class ScriptDataDate(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.date_time: float = None  # unix timestamp value
+        self.local_date_time_offset: int = None
+
+
+class ScriptDataECMAArray(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.array_length: int = None
+        self.variables: List[ScriptDataObjectProperty] = None
+        # list terminator omitted
+
+
+class ScriptDataLongString(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.string_length: int = None  # string_date length in bytes
+        self.string_data: str = None
+
+
+class ScriptDataObject(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.object_properties: List[ScriptDataObjectProperty] = None
+        # list terminator omitted
+
+
+class ScriptDataObjectProperty(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.property_name: ScriptDataString = None
+        self.property_data: ScriptDataValue = None
+
+
+class ScriptDataStrictArray(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.strict_array_length: int = None  # Number of items
+        self.strict_array_value: List[ScriptDataValue] = []
+
+
+class ScriptDataString(BaseData):
+    def __init__(self):
+        super().__init__()
+        self.string_length: int = None
+        self.string_data: str = None
+
+
 class ScriptData(BaseData):
-    pass
+    def __init__(self):
+        super().__init__()
+        self.name: ScriptDataValue = None
+        self.value: ScriptDataValue = None
 
 
 class FLV:
@@ -211,17 +294,13 @@ class FlvReader(BaseReader):
     def read_flv_header(self):
         header = self.flv.header
         header.first_byte_at = self.f.tell()
-
         sig = self.f.read(3)
         assert sig == b'FLV', "Not a valid FLV file."
         header.version = self.read_UI8()
         one = self.read_UI8()
-        # mask:  R:reserved A:audio present V:video present
-        #          always 0         RRRRRARV
-        header.flag_audio =(one & 0b00000100) >> 2
+        header.flag_audio = (one & 0b00000100) >> 2
         header.flag_video = one & 0b00000001
         header.header_length = self.read_UI32()
-
         header.last_byte_at = self.f.tell()
 
     def read_flv_body(self):
@@ -243,7 +322,22 @@ class FlvReader(BaseReader):
 
         stream_id = self.read_UI24()
         assert stream_id == 0, "StreamID not 0"
-        ...
+        if tag.tag_type == 8:
+            tag.audio_tag_header = self.read_audio_tag_header()
+        if tag.tag_type == 9:
+            tag.video_tag_header = self.read_video_tag_header()
+        if tag.filter == 1:
+            raise NotImplementedError("Encryption Not Implemented yet")
+        if tag.tag_type == 8:
+            tag.data = self.read_audio_data()
+        elif tag.tag_type == 9:
+            tag.data = self.read_video_data()
+        elif tag.tag_type == 18:
+            tag.data = self.read_script_data()
+        else:
+            raise TypeError("Tag Type {} Not Implemented".format(tag.tag_type))
+
+        self.flv.body.append(tag)
 
     def read_flv_prev_tag_size(self):
         pts = PrevTagSize()
@@ -251,7 +345,7 @@ class FlvReader(BaseReader):
         if self.flv.body:
             prev_tag = self.flv.body[-1]
             pts.prev_tag = prev_tag
-            assert prev_tag.tag_size == pts.size , "Mismatch Prev Tag Size"
+            assert prev_tag.tag_size == pts.size, "Mismatch Prev Tag Size"
         else:
             assert pts.size == 0, "First Pre Tag Size not 0"
 
@@ -281,17 +375,31 @@ class FlvReader(BaseReader):
             header.composition_time = self.read_SI24()
             if header.avc_packet_type != 1:
                 assert header.composition_time == 0, \
-                    "AVCPacketType = {} but CompositionTime = {}, not 0."\
-                    .format(header.avc_packet_type, header.composition_time)
+                    "AVCPacketType = {} but CompositionTime = {}, not 0." \
+                        .format(header.avc_packet_type, header.composition_time)
         header.last_byte_at = self.f.tell()
         return header
 
     def read_video_data(self) -> VideoData:
-        pass
+        video = VideoData()
+        ...
+        return video
 
     def read_audio_data(self) -> AudioData:
-        pass
+        audio = AudioData()
+        ...
+        return audio
 
     def read_script_data(self) -> ScriptData:
-        pass
+        script = ScriptData()
+        ...
+        return script
+
+
+
+
+
+
+
+
 
