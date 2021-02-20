@@ -10,12 +10,20 @@ After some research I decided that using pure python might be better.
 
 ### Fearures
 
-+ Follow the Adobe Flv Specification:
++ Completely Follow the Adobe Flv Specification:<br>
    https://www.adobe.com/content/dam/acom/en/devnet/flv/video_file_format_spec_v10_1.pdf
-+ Good for handling broken tags (common in live streaming condition)
++ Simple and Intuitive API
 + Easy to customize and build your own tool or application with
 
 
+- [x] FLV file reading
+- [ ] FLV metadata fixing 
+- [ ] FLV time fixing
+
+
+### Documentation
+
+see [docs/main.md](./docs/main.md)
 
 
 

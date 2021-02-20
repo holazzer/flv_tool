@@ -8,12 +8,20 @@
 
 ### 功能特色
 
-+ 遵照 Adobe flv 标准:
++ 完全遵照 Adobe flv 标准:<br>
    https://www.adobe.com/content/dam/acom/en/devnet/flv/video_file_format_spec_v10_1.pdf
-+ 方便处理破损的 tag （直播中常见）
+
++ 简单又直觉的API
 + 方便您编程使用，构建自己的工具和应用
 
+- [x] FLV 文件读取
+- [ ] FLV 元数据修改 
+- [ ] FLV 时间修改
 
+
+### 文档
+
+英文文档 [docs/main.md](./docs/main.md)
 
 
 
