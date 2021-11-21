@@ -1,11 +1,10 @@
 from io import BytesIO
 
-from struct import pack
-
 from flv_tool.flv import FLV
 
 from flv_tool.flv_tags import \
-    PrevTagSize, FlvTag, FlvHeader, \
+    PrevTagSize, FlvTag, \
+    FlvHeader, BaseFlvTag, \
     AudioTagHeader, VideoTagHeader, \
     BinaryData,\
     ScriptDataValue, \
@@ -17,14 +16,12 @@ from flv_tool.flv_tags import \
     ScriptDataStrictArray, \
     ScriptDataString, \
     ScriptData
-from flv_tool.flv_enums import TagType, \
-    SoundFormat, SoundRate, SoundSize, SoundType, \
-    AACPacketType, FrameType, CodecID, \
-    AVCPacketType, ValueType
+
+from flv_tool.flv_enums import TagType
 
 from flv_tool.base_writer import BaseWriter
 
-from typing import List, Union
+from typing import List
 
 
 class FlvWriter(BaseWriter):
@@ -36,6 +33,10 @@ class FlvWriter(BaseWriter):
         super().__init__()
         self.flv: FLV = flv
         self.f = BytesIO()
+
+    def write_flv(self):
+        self.write_flv_header(self.flv.header)
+        self.write_flv_body(self.flv.body)
 
     def write_flv_header(self, header: FlvHeader):
         self.write_byte(b'FLV')  # signature
@@ -57,8 +58,8 @@ class FlvWriter(BaseWriter):
         b |= tag.tag_type
         self.write_byte(bytes((b,)))
         self.write_UI24(tag.data_size)
-        self.write_byte(tag.timestamp)
-        self.write_byte(tag.timestamp_extended)
+        self.write_UI24(tag.timestamp)
+        self.write_UI8(tag.timestamp_extended)
         self.write_UI24(0)  # StreamID
 
         if tag.tag_type == TagType.Audio:
@@ -85,6 +86,42 @@ class FlvWriter(BaseWriter):
     def write_binary_data(self, data: BinaryData):
         return self.copy_data(self.flv.f, data.first_byte_after, data.last_byte_at)
 
+    def write_script_data_object_end(self):
+        self.write_UI8(0)
+        self.write_UI8(0)
+        self.write_UI8(9)
+
+    def write_script_data_string(self, string: ScriptDataString):
+        self.write_UI16(string.string_length)
+        self.write_string_no_term(string.string_data)
+
+    def write_script_data_object(self, data_object: ScriptDataObject):
+        for item in data_object.object_properties:
+            self.write_script_data_object_property(item)
+        self.write_script_data_object_end()
+
+    def write_script_data_object_property(self, obj_property: ScriptDataObjectProperty):
+        self.write_script_data_string(obj_property.property_name)
+        self.write_script_data_value(obj_property.property_data)
+
+    def write_script_data_ecma_array(self, array: ScriptDataECMAArray):
+        self.write_UI32(array.array_length)
+        for item in array.variables:
+            self.write_script_data_object_property(item)
+        self.write_script_data_object_end()
+
+    def write_script_data_strict_array(self, array: ScriptDataStrictArray):
+        self.write_UI32(array.strict_array_length)
+        for item in array.strict_array_value:
+            self.write_script_data_value(item)
+
+    def write_script_data_date(self, date: ScriptDataDate):
+        self.write_SI16(date.local_date_time_offset)
+
+    def write_script_data_long_string(self, string: ScriptDataLongString):
+        self.write_UI32(string.string_length)
+        self.write_string_no_term(string.string_data)
+
     def write_script_data_value(self, value: ScriptDataValue):
         self.write_UI8(value.type)
 
@@ -93,12 +130,21 @@ class FlvWriter(BaseWriter):
         elif value.type == 1:
             self.write_UI8(value.script_data_value)
         elif value.type == 2:
-            pass
-
-        value.script_data_value
-
-        pass
-        # todo: implement write
+            self.write_script_data_string(value.script_data_value)
+        elif value.type == 3:
+            self.write_script_data_object(value.script_data_value)
+        elif value.type == 7:
+            self.write_UI16(value.script_data_value)
+        elif value.type == 8:
+            self.write_script_data_ecma_array(value.script_data_value)
+        elif value.type == 10:
+            self.write_script_data_strict_array(value.script_data_value)
+        elif value.type == 11:
+            self.write_script_data_date(value.script_data_value)
+        elif value.type == 12:
+            self.write_script_data_long_string(value.script_data_value)
+        else:
+            raise ValueError("Undefined ScriptDataValue Type: {}".format(value.type))
 
     def write_script_data(self, script_data: ScriptData):
         self.write_script_data_value(script_data.name)
@@ -115,7 +161,7 @@ class FlvWriter(BaseWriter):
         return self.write_byte(b)
     # todo: check copy data margin
 
-    def write_flv_body(self, body: List[Union[PrevTagSize, FlvTag]]):
+    def write_flv_body(self, body: List[BaseFlvTag]):
         for tag in body:
             if isinstance(tag, PrevTagSize):
                 self.write_prev_tag_size(tag)

@@ -72,8 +72,8 @@ class FlvTag(BaseFlvTag):
         self.filter: int = None
         self.tag_type: TagType = None
         self.data_size: int = None
-        self.timestamp: bytes = None
-        self.timestamp_extended: bytes = None
+        self.timestamp: int = None
+        self.timestamp_extended: int = None
         self.audio_tag_header: Optional[AudioTagHeader] = None
         self.video_tag_header: Optional[VideoTagHeader] = None
         self.encryption_header = NotImplemented
