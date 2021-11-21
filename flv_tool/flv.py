@@ -8,8 +8,8 @@ Flv Tool, early impl
 """
 
 from typing import List
-
 from flv_tool.flv_tags import BaseFlvTag, FlvHeader
+from io import BytesIO
 
 
 class FLV:
@@ -17,5 +17,5 @@ class FLV:
         self.name: str = None
         self.header: FlvHeader = FlvHeader()
         self.body: List[BaseFlvTag] = []
-
+        self.f: BytesIO = None
 

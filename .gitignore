@@ -17,6 +17,17 @@
 
 # Custom ignores:
 
+
+# Python 
+
 /.idea
 
-/__pycache__
+local_test.py
+local_test.md
+
+__pycache__
+
+
+# local playground
+
+/playground

@@ -40,7 +40,7 @@ class BaseFlvTag:
     def py_native_value(self):
         d = {}
         for k,v in self.__dict__.items():
-            if v is None: continue
+            if v is None or v is NotImplemented: continue
             if hasattr(v, 'py_native_value'):
                 d[k] = v.py_native_value
             else:
@@ -218,4 +218,6 @@ class ScriptData(BaseData):
 
     @property
     def py_native_value(self):
-        return {self.name.py_native_value: self.value.py_native_value }
+        return {self.name.py_native_value: self.value.py_native_value}
+
+

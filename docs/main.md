@@ -4,7 +4,6 @@
 ## Reading an FLV file
 
 ```python
-
 from flv_tool.flv_reader import FlvReader
 f = open(r'your_video.flv','rb')
 reader = FlvReader(f)

@@ -83,3 +83,5 @@ class ValueType(IntEnum):
     StrictArray = 10
     Date = 11
     LongString = 12
+
+
