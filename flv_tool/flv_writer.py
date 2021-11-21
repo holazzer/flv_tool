@@ -85,9 +85,24 @@ class FlvWriter(BaseWriter):
     def write_binary_data(self, data: BinaryData):
         return self.copy_data(self.flv.f, data.first_byte_after, data.last_byte_at)
 
-    def write_script_data(self, script_data: ScriptData):
+    def write_script_data_value(self, value: ScriptDataValue):
+        self.write_UI8(value.type)
+
+        if value.type == 0:
+            self.write_double(value.script_data_value)
+        elif value.type == 1:
+            self.write_UI8(value.script_data_value)
+        elif value.type == 2:
+            pass
+
+        value.script_data_value
+
         pass
-        # todo: implement script data!
+        # todo: implement write
+
+    def write_script_data(self, script_data: ScriptData):
+        self.write_script_data_value(script_data.name)
+        self.write_script_data_value(script_data.value)
 
     def copy_data(self, f: BytesIO, start: int, stop: int):
         b = bytearray()
@@ -108,6 +123,7 @@ class FlvWriter(BaseWriter):
                 self.write_flv_tag(tag)
 
 
+# todo: implement script data!
 
 
 
