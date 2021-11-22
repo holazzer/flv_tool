@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from flv_tool.flv import FLV
+#from flv_tool.flv import FLV
 
 from flv_tool.flv_tags import \
     PrevTagSize, FlvTag, \
@@ -29,9 +29,9 @@ class FlvWriter(BaseWriter):
     Encode an FLV object into a binary file.
     We assume the FLV object is correct.
     """
-    def __init__(self, flv: FLV):
+    def __init__(self, flv: 'FLV'):
         super().__init__()
-        self.flv: FLV = flv
+        self.flv: 'FLV' = flv
         self.f = BytesIO()
 
     def write_flv(self):
