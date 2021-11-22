@@ -170,3 +170,51 @@ flv.body[1].py_native_value
 ```
 
 
+## Fixing FLV from stream encoders
+
+The Intention of writing this library was to fix the metadata part of FLV files. In streaming environment, flv works fine for video players, but many processing tools cannot directly handle them, for streaming has broken or wrong metadata. 
+
+For example, some FLVs you download from a stream may have a duration of 0, or do not have a quick nevigation hint of all keyframes.
+
+Your video player probably can still work, but they actually pre-read the whole file, or a large part of it. 
+
+I have implemented the `fix_stream_flv` method, which adds `duration`, `filesize`, `keyframes`, had these info not been there. We also fix the wrong values by recalculating them all.
+
+The fixed FLV needs to be written to disk. I have implemented a `FlvWriter` for that. You put an `FLV` object in. By default it writes to a buffer (in memory), but you can replace the `f` with any file stream you want, as long as it fits the `BytesIO` interfaces.
+
+```python
+from flv_tool import FlvReader, FlvWriter
+
+r = FlvReader(open(r'stream_flv.flv', 'rb'))
+flv = r.read_flv()
+flv.fix_stream_flv()  # <- this fixes it !
+
+w = FlvWriter(flv)
+w.write_flv()  # <- this writes to `w.f`
+               # by default this is a `io.BytesIO` object
+               # but you can replace it
+
+with open('f:/test.flv', 'wb') as ff:
+    ff.write(w.f.getvalue())
+```
+
+
+## Build your own library based on `flv_tool`
+
+You can do what I do. You can directly work with the three classes, `FLV`, `FlvReader` or `FlvWriter`. You can create a new class by inherting any of them, and use the implemented methods. Surely you will feel great comfort with the tool methods.
+
+Both the reader and writer are fully implemented to write almost all data types (those actually used by people, I mean) in the FLV Specification.
+
+
+## Editing the Metadata 
+
+Specifically, to alter the metadata, there are 5 steps.
+
+1. Read in an `FLV`.
+2. Change the ScriptData structure, while keeping tabs of the `offset` your changes bring. 
+3. Change the PrevTagSize by `offset`.
+4. Create an `FlvWriter`.
+5. Write to disk.
+
+You can see how I did it in [flv.py](./../flv_tool/flv.py#L42).
+

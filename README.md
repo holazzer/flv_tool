@@ -17,8 +17,8 @@ After some research I decided that using pure python might be better.
 
 
 - [x] FLV file reading
-- [ ] FLV metadata fixing 
-- [ ] FLV time fixing
+- [x] FLV metadata fixing 
+- [x] FLV time fixing
 
 
 ### Documentation
