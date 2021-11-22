@@ -19,6 +19,7 @@ class FlvReader(BaseReader):
     def read_flv(self) -> FLV:
         self.flv = FLV()
         self.flv.f = self.f
+        self.flv.reader = self
         self.flv.name = self.f.name
         self.read_flv_header()
         self.read_flv_body()

@@ -23,6 +23,8 @@ from flv_tool.base_writer import BaseWriter
 
 from typing import List
 
+from tqdm import tqdm
+
 
 class FlvWriter(BaseWriter):
     """
@@ -162,7 +164,9 @@ class FlvWriter(BaseWriter):
     # todo: check copy data margin
 
     def write_flv_body(self, body: List[BaseFlvTag]):
-        for tag in body:
+        body = body.copy()
+        if not isinstance(body[-1], PrevTagSize): body.pop()
+        for tag in tqdm(body):
             if isinstance(tag, PrevTagSize):
                 self.write_prev_tag_size(tag)
             elif isinstance(tag, FlvTag):

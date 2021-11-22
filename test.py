@@ -24,8 +24,7 @@ for tag in flv.body:
 "__._._.__._.__._.__._._.__.________K"
 
 
-from flv_tool import FlvReader
-from flv_tool.flv_writer import FlvWriter
+from flv_tool import FlvReader, FlvWriter
 
 r = FlvReader(open(r'C:\Users\what\Desktop\harvester\ciri.flv', 'rb'))
 flv = r.read_flv()
@@ -37,8 +36,6 @@ w.write_flv()
 
 with open(r'c:/users/what/desktop/test-ciri.flv', 'wb') as f:
     f.write(w.f.getvalue())
-
-
 
 
 r = FlvReader(open(r'C:\Users\what\Desktop\harvester\1126960rPXROLJ7f_4000.flv', 'rb'))
@@ -168,6 +165,19 @@ for tag in flv.body:
  'real_timestamp': 0}
 """
 
+
+from flv_tool import FlvReader, FlvWriter
+
+r = FlvReader(open(r'd:/99999/99999-1611674231.flv', 'rb'))
+flv = r.read_flv()
+flv.fix_stream_flv()
+
+w = FlvWriter(flv)
+w.write_flv()
+
+
+with open('f:/99999-test.flv', 'wb') as ff:
+    ff.write(w.f.getvalue())
 
 
 

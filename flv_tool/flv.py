@@ -37,6 +37,7 @@ class FLV:
         self.header: FlvHeader = FlvHeader()
         self.body: List[BaseFlvTag] = []
         self.f: BytesIO = None
+        self.reader: 'FlvReader' = None
 
     def fix_stream_flv(self):
         keyframes = self.find_key_frames()
@@ -47,7 +48,7 @@ class FLV:
         # calculate offset
         len_kf = len(keyframes)
 
-        on_meta_data: ScriptData = self.body[1]
+        on_meta_data: ScriptData = self.body[1].data
         arr: ScriptDataECMAArray = on_meta_data.value.script_data_value
 
         # onMetaData is an `ECMA_array`,
@@ -62,20 +63,32 @@ class FLV:
 
 
         # todo: calculate these
-        duration = 0.0
-        filesize = 0.0
-        file_positions = [0.0, 0.0]
-        times = [0.0, 0.0]
 
-        adding_data = {
-            'duration': 0.0,  # (2B + 8 char) + 1[type] + 8[double] = 19 Bytes
-            'filesize': 0.0,  # (2B + 8 char) + 1[type] + 8[double] = 19 Bytes
-            'keyframes':  # (2B + 9 char) + 1[type] + (list-excluded) + 3[Term] = 15 Bytes
-                {'filepositions':  # (2B + 13 char) + 1[type] + (list-excluded) = 16 Bytes
-                     [1402.0, ],  # StrictArray[double] 4B + (8+1) * len
-                 'times': [0.0, ]}  # (2B + 5 char) + 1[type] + (4B + 8 * len)
-            # keyframes 785 =
-        }
+        filesize = self.reader.file_length
+        file_positions = [i.first_byte_after for i in keyframes]
+        original_times = [i.real_timestamp for i in keyframes]
+        starting_time = original_times[1]
+        times = [(i-starting_time if i > 0 else i)/1000 for i in original_times]
+
+        # find last video tag
+        last_video_tag = None
+        for tag in reversed(self.body):
+            if isinstance(tag, FlvTag) and tag.tag_type == TagType.Video:
+                last_video_tag = tag
+                break
+        assert last_video_tag is not None
+
+        duration = (last_video_tag.real_timestamp - starting_time) / 1000
+
+        #adding_data = {
+        #    'duration': 0.0,  # (2B + 8 char) + 1[type] + 8[double] = 19 Bytes
+        #    'filesize': 0.0,  # (2B + 8 char) + 1[type] + 8[double] = 19 Bytes
+        #    'keyframes':  # (2B + 9 char) + 1[type] + (list-excluded) + 3[Term] = 15 Bytes
+        #        {'filepositions':  # (2B + 13 char) + 1[type] + (list-excluded) = 16 Bytes
+        #             [1402.0, ],  # StrictArray[double] 4B + (8+1) * len
+        #         'times': [0.0, ]}  # (2B + 5 char) + 1[type] + (4B + 8 * len)
+        #    # keyframes 785 =
+        #}
 
         # todo: calculate the correct bytes needed by the new data
 
@@ -129,7 +142,7 @@ class FLV:
             for item in arr.variables:
                 if item.property_name.string_data == 'duration': dur = item
             assert dur is not None
-            assert dur.property_name == 'duration'
+            assert dur.property_name.string_data == 'duration'
             assert dur.property_data.type == ValueType.Number
             dur.property_data.script_data_value = duration
 
@@ -205,7 +218,7 @@ class FLV:
             for item in arr.variables:
                 if item.property_name.string_data == 'filesize': size = item
             assert size is not None
-            assert size.property_name == 'filesize'
+            assert size.property_name.string_data == 'filesize'
             assert size.property_data.type == ValueType.Number
             size.property_data.script_data_value = filesize + offset
 
