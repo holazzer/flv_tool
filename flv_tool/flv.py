@@ -49,7 +49,12 @@ class FLV:
         len_kf = len(keyframes)
 
         on_meta_data: ScriptData = self.body[1].data
-        arr: ScriptDataECMAArray = on_meta_data.value.script_data_value
+        if on_meta_data.value.type == 8:
+            arr: ScriptDataECMAArray = on_meta_data.value.script_data_value.variables
+        elif on_meta_data.value.type == 3:
+            arr: ScriptDataObject = on_meta_data.value.script_data_value.object_properties
+        else:
+            raise ValueError("unexpected value type: {}".format(on_meta_data.value.type))
 
         # onMetaData is an `ECMA_array`,
         # where each item is a `ObjectProperty`
@@ -116,7 +121,7 @@ class FLV:
             fixer.property_data.script_data_value.string_data)  # 2
         offset += 2
 
-        arr.variables.append(fixer)
+        arr.append(fixer)
 
         # duration
 
@@ -135,11 +140,11 @@ class FLV:
             dur.property_data.script_data_value = duration  # todo: check duration
             offset += 8
 
-            arr.variables.append(dur)
+            arr.append(dur)
 
         else:
             dur = None
-            for item in arr.variables:
+            for item in arr:
                 if item.property_name.string_data == 'duration': dur = item
             assert dur is not None
             assert dur.property_name.string_data == 'duration'
@@ -201,7 +206,7 @@ class FLV:
 
             obj.object_properties.append(ts)
 
-            arr.variables.append(kfs)
+            arr.append(kfs)
 
         if 'filesize' not in on_meta_data.value.py_native_value:
             size = ScriptDataObjectProperty()
@@ -211,11 +216,11 @@ class FLV:
             size.property_data = ScriptDataValue()
             size.property_data.type = ValueType.Number
             size.property_data.script_data_value = filesize + offset
-            arr.variables.append(size)
+            arr.append(size)
 
         else:
             size = None
-            for item in arr.variables:
+            for item in arr:
                 if item.property_name.string_data == 'filesize': size = item
             assert size is not None
             assert size.property_name.string_data == 'filesize'
@@ -239,3 +244,101 @@ class FLV:
                         keyframes.append(tag)
 
         return keyframes
+
+    def fix_meta_inplace(self):
+        """
+        WARNING: This method will write directly to the original file.
+        As writing extra bytes will cost a lot of IO time,
+            we only fix for filesize and duration,
+            which is typically set to zero for a stream flv.
+        Sadly, Many libraries depend on these properties
+            to work, even through flv itself does not.
+        """
+
+        on_meta_data: ScriptData = self.body[1].data
+        if on_meta_data.value.type == 8:
+            arr: List[ScriptDataObjectProperty] = on_meta_data.value.script_data_value.variables
+        elif on_meta_data.value.type == 3:
+            arr: List[ScriptDataObjectProperty] = on_meta_data.value.script_data_value.object_properties
+        else:
+            raise ValueError("unexpected value type: {}".format(on_meta_data.value.type))
+
+        # onMetaData is an `ECMA_array`,
+        # where each item is a `ObjectProperty`
+        # name is a 'DataString' len = 2 Bytes (str len) + len(str)
+        # value is a 'DataValue' len =
+        # double - 8 Bytes [0]
+        # Boolean - 1 Byte (UI8) [1]
+        # String - len(str) [2]
+        # Object - list-of-ObjectProperty + Term(3 Bytes) [3]
+        # StrictArray - 4 Bytes + len(value) * ValueSize
+
+        filesize = self.reader.file_length
+
+        # in place of exhausting `find_key_frame` method,
+        # we search for starting frame from head
+        #     and last frame from tail
+
+        start_frame: FlvTag = None
+
+        for tag in self.body:
+            if isinstance(tag, FlvTag):
+                if tag.tag_type == TagType.Video:
+                    if tag.video_tag_header.frame_type == FrameType.KeyFrame:
+                        breaker = not (start_frame is None) # Ignore the first KeyFrame Tag
+                        start_frame = tag                   # the first always has timestamp 0
+                        if breaker: break
+
+        starting_time = start_frame.real_timestamp
+
+        # find last video tag
+        last_video_tag: FlvTag = None
+        for tag in reversed(self.body):
+            if isinstance(tag, FlvTag) and tag.tag_type == TagType.Video:
+                last_video_tag = tag
+                break
+
+        duration = (last_video_tag.real_timestamp - starting_time) / 1000
+
+        dur: ScriptDataObjectProperty = None
+        for item in arr:
+            if item.property_name.string_data == 'duration': dur = item
+        assert dur is not None
+        assert dur.property_name.string_data == 'duration'
+        assert dur.property_data.type == ValueType.Number
+
+        dur.property_data.script_data_value = duration
+
+        w = FlvWriter(None)  # proxy writer
+        w.f = self.f
+        w.f.seek(dur.first_byte_after)
+        w.write_script_data_object_property(dur)
+
+        size = None
+        for item in arr:
+            if item.property_name.string_data == 'filesize': size = item
+        assert size is not None
+        assert size.property_name.string_data == 'filesize'
+        assert size.property_data.type == ValueType.Number
+        size.property_data.script_data_value = filesize
+
+        w.f.seek(size.first_byte_after)
+        w.write_script_data_object_property(size)
+
+    def change_meta_data(self, name, value):
+        on_meta_data: ScriptData = self.body[1].data
+        if on_meta_data.value.type == 8:
+            arr: List[ScriptDataObjectProperty] = on_meta_data.value.script_data_value.variables
+        elif on_meta_data.value.type == 3:
+            arr: List[ScriptDataObjectProperty] = on_meta_data.value.script_data_value.object_properties
+        else:
+            raise ValueError("unexpected value type: {}".format(on_meta_data.value.type))
+
+        sdop = None
+        for item in arr:
+            if item.property_name.string_data == name: sdop = item
+        assert sdop is not None, 'No such property: {}'.format(name)
+        assert sdop.property_name.string_data == name
+        sdop.property_data.script_data_value = value
+
+
